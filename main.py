@@ -7,7 +7,6 @@ from hardware.rotary_selector import RotarySelector
 
 # Imports des modes 
 from modes.mode_datetime import ModeDateHeure
-from modes.mode_multimetre import ModeMultimetre
 from modes.mode_dummy import ModeDummy
 
 def main() -> None:
