@@ -1,4 +1,4 @@
-# hardware/rotary_selector.py
+# hardware/platform/rotary_selector.py
 import time
 from threading import Timer
 from typing import Callable, Optional

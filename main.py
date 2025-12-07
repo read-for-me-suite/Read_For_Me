@@ -3,11 +3,12 @@ from signal import pause
 
 from core.speaker import Speaker
 from core.mode_manager import ModeManager
-from hardware.rotary_selector import RotarySelector
+from hardware.platform.rotary_selector import RotarySelector
 
 # Imports des modes 
 from modes.mode_datetime import ModeDateHeure
 from modes.mode_dummy import ModeDummy
+from modes.mode_multimeter import ModeMultimetre
 
 def main() -> None:
     # 1. Initialiser la synthèse vocale
@@ -17,7 +18,7 @@ def main() -> None:
     modes = [
         ModeDateHeure(speaker),
         ModeDummy(speaker),
-        #ModeMultimetre(speaker),
+        ModeMultimetre(speaker),
         # Plus tard :
         # ModeMachineALire(speaker),
         # ModeMultimetre(speaker),

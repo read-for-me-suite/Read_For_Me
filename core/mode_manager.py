@@ -63,6 +63,9 @@ class ModeManager:
             # Index invalide, on ignore (sécurité)
             return
 
+        # On annonces en attente
+        self._speaker.clear_queue()
+
         # Quitter l'ancien mode
         self._current_mode.on_exit()
 

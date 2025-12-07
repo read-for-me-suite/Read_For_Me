@@ -1,9 +1,3 @@
 __pycache__/
 
-modes/mode_multimeter.py
-modes/mode_multimeter2.py
-
-hardware/multimeterr_owon.py
-hardware/multimeter_owon2.py
-
 hardware/savemulti
