@@ -39,7 +39,7 @@ from abc import ABC, abstractmethod
 
 class Mode(ABC):
     """
-    Classe de base abstraite pour tous les modes de l'assistant.
+    Classe de base abstraite pour tous les modes de l’assistant.
 
     Chaque mode concret (ex: `ModeDateHeure`, `ModeMultimetre`, etc.)
     doit **hériter** de cette classe et implémenter au minimum :
@@ -47,10 +47,15 @@ class Mode(ABC):
     - `on_short_press()` : réaction à un appui court sur le bouton,
     - `on_long_press()`  : réaction à un appui long sur le bouton.
 
-    Les hooks `on_enter()` / `on_exit()` et `on_double_press()` sont
-    **optionnels** : l’implémentation par défaut ne fait rien. Ils
-    peuvent être surchargés si le mode en a besoin (par exemple pour
-    démarrer un driver, activer un timer, etc.).
+    Les hooks suivants sont **optionnels** (no-op par défaut) :
+
+    - `on_enter()` / `on_exit()` : lifecycle du mode (drivers, timers…).
+    - `on_double_press()` : double appui sur le bouton rotatif.
+    - `on_key_pressed(key)` : touche clavier reçue du ModeManager.
+    - `on_keypad_key(key)` : alias de compatibilité de `on_key_pressed`.
+      Seules les touches NON-globales sont transmises ici — les touches
+      réservées au volume et à la vitesse sont interceptées par le
+      ModeManager avant d’arriver dans les modes.
     """
 
     def __init__(self, name: str):
@@ -131,7 +136,7 @@ class Mode(ABC):
         """
         **Double appui rapide** sur le bouton poussoir lorsque ce mode est actif.
 
-        Ce hook est **optionnel** : par défaut, il ne fait rien.  
+        Ce hook est **optionnel** : par défaut, il ne fait rien.
         Il peut être surchargé par un mode qui souhaite proposer un
         comportement spécifique sur double clic.
 
@@ -141,5 +146,48 @@ class Mode(ABC):
           lecture automatique toutes les X secondes,
         - dans un autre mode : activer un mode "favori" ou une fonction
           avancée sans surcharger le simple appui court.
+        """
+        pass
+
+    def on_key_pressed(self, key: str) -> None:
+        """
+        Point d'entrée recommandé pour les touches keypad non-globales.
+
+        Par défaut, délègue vers `on_keypad_key` pour préserver la
+        compatibilité des modes existants.
+        """
+        self.on_keypad_key(key)
+
+    def on_keypad_key(self, key: str) -> None:
+        """
+        Alias de compatibilité pour la gestion des touches keypad.
+
+        Les nouveaux modes devraient préférer surcharger `on_key_pressed`.
+        Les modes existants qui surchargent `on_keypad_key` restent
+        entièrement compatibles.
+
+        Règle importante
+        ----------------
+        Seules les touches NON réservées par le ModeManager sont
+        transmises ici. Les touches globales (volume+, volume-,
+        vitesse+, vitesse-) sont interceptées en amont et ne
+        parviennent jamais dans cette méthode.
+
+        Paramètres
+        ----------
+        key :
+            Chaîne représentant la touche pressée ("1"–"9", "0",
+            "A"–"D", "*", "#").
+
+        Exemple d’usage
+        ---------------
+        Dans ModeReadingMachine :
+
+            def on_keypad_key(self, key: str) -> None:
+                if key == "1":
+                    self._start_capture_pipeline()
+                elif key == "5":
+                    self._toggle_pause()
+                ...
         """
         pass

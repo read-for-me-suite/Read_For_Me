@@ -97,6 +97,7 @@ class BleClient:
         scan_timeout: float = 4.0,
         retry_delay: float = 15.0,
         reconnect_delay: float = 2.0,
+        listen_poll_interval_sec: float = 0.5,
     ) -> None:
         # Filtres d’identification de l’appareil cible
         self._name_filter = name_filter.upper() if name_filter else None
@@ -111,6 +112,7 @@ class BleClient:
         self._scan_timeout = scan_timeout
         self._retry_delay = retry_delay
         self._reconnect_delay = reconnect_delay
+        self._listen_poll_interval_sec = listen_poll_interval_sec
 
         # État interne du client
         self._running: bool = False          # boucle principale active ou non
@@ -184,6 +186,12 @@ class BleClient:
           `is_connected` passera à `False`.
         """
         self._running = False
+        if (
+            self._thread is not None
+            and self._thread.is_alive()
+            and threading.current_thread() is not self._thread
+        ):
+            self._thread.join(timeout=self._scan_timeout + self._reconnect_delay + 1.0)
 
     def _run_asyncio_loop(self) -> None:
         """
@@ -369,7 +377,7 @@ class BleClient:
                 )
 
                 while self._running and client.is_connected:
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(self._listen_poll_interval_sec)
 
                 if self._running:
                     self._emit_status("disconnected")

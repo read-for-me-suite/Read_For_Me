@@ -1,0 +1,215 @@
+# Configuration centrale de ReadForMe-version2.
+# Toute modification hardware/comportement doit passer par ce fichier.
+
+# =============================================================================
+# SPEAKER
+# =============================================================================
+[speaker]
+# Voix Piper (obligatoirement présente dans models/piper).
+voice_model = "fr_FR-siwis-medium"
+# Dossier des modèles (relatif racine projet).
+voice_model_dir = "models/piper"
+
+# Volume global au démarrage (entier 0..100).
+default_volume = 75
+# Vitesse globale au démarrage (float 0.5..2.0).
+default_speed = 1.0
+
+# Limites de sécurité appliquées par le Speaker.
+min_volume = 0
+max_volume = 100
+min_speed = 0.5
+max_speed = 2.0
+
+# Incrément volume global appliqué par pression keypad.
+volume_step = 4
+# Facteurs multiplicatifs vitesse globale.
+speed_factor_up = 1.25
+speed_factor_down = 0.80
+
+# Sons de notification volume/vitesse.
+# Source officielle unique (WAV, robuste avec aplay sur Raspberry Pi).
+notif_wav = "sounds/notif.wav"
+
+# Active des logs de diagnostic supplémentaires.
+verbose_logging = true
+
+# =============================================================================
+# GPIO
+# =============================================================================
+[gpio]
+# Convention de numérotation utilisée dans tout le projet.
+numbering = "BCM"
+
+# =============================================================================
+# ROTARY
+# =============================================================================
+[rotary]
+# GPIO du sélecteur rotatif.
+pin_a = 17
+pin_b = 27
+pin_sw = 22
+
+# Durée (s) pour distinguer appui court/long.
+long_press_threshold = 1.0
+# Stabilisation de geste rotatif (s), > 0.
+gesture_settle_delay = 0.20
+# Zone morte autour des événements bouton (s), > 0.
+rotate_button_deadzone = 0.15
+# Temps minimum entre deux changements de mode (s), > 0.
+min_step_interval = 0.30
+# Fenêtre double clic (s), > 0.
+double_click_window = 0.40
+# Anti-rebond bouton poussoir gpiozero (s), > 0.
+button_bounce_time = 0.05
+# Nombre de micro-steps quadrature nécessaires pour valider un cran.
+steps_per_detent = 4
+# Garde-fou temporel entre deux edges A/B (s), > 0.
+edge_guard_interval = 0.001
+# Inverse le sens logique si câblage inversé.
+direction_inverted = false
+
+# =============================================================================
+# KEYPAD
+# =============================================================================
+[keypad]
+# GPIO des lignes/colonnes du clavier 4x4.
+row1 = 12
+row2 = 16
+row3 = 20
+row4 = 21
+col1 = 5
+col2 = 6
+col3 = 13
+col4 = 19
+
+# Timing du scan keypad.
+# scan_interval > 0, debounce_time > 0.
+scan_interval = 0.02
+debounce_time = 0.25
+
+# Touches globales non redéfinissables par les modes.
+global_volume_up_key = "8"
+global_volume_down_key = "2"
+global_speed_up_key = "9"
+global_speed_down_key = "7"
+
+# =============================================================================
+# BLE
+# =============================================================================
+[ble]
+# Cible BLE principale (multimètre OWON).
+name_filter = "BDM"
+# Laisser vide pour ignorer le filtre adresse.
+address_filter = ""
+# UUID de la caractéristique de notification.
+characteristic_uuid = "0000fff4-0000-1000-8000-00805f9b34fb"
+
+# Timings de connexion/reconnexion (secondes, > 0).
+scan_timeout = 4.0
+retry_delay = 15.0
+reconnect_delay = 2.0
+listen_poll_interval_sec = 0.5
+
+# =============================================================================
+# CAMERA
+# =============================================================================
+[camera]
+# Rotation image (0, 90, 180, 270).
+rotation = 180
+# Timeout capture en ms (>= 0).
+timeout_ms = 500
+# 0 = laisser l'outil caméra choisir.
+width = 0
+height = 0
+
+# =============================================================================
+# OCR
+# =============================================================================
+[ocr]
+# Langue tesseract (pack installé requis).
+lang = "fra"
+# Page Segmentation Mode (>= 0).
+psm = 3
+
+# =============================================================================
+# TTS
+# =============================================================================
+[tts]
+# Moteur TTS logique (actuellement "piper").
+engine = "piper"
+
+# =============================================================================
+# READING MACHINE
+# =============================================================================
+[reading_machine]
+# Répertoire de travail pour image/texte/wav temporaires.
+work_dir = "/tmp/readforme"
+# Basename commun des fichiers générés.
+basename = "scan"
+
+# Contrôle lecture.
+seek_step_sec = 10
+ocr_feedback_delay_sec = 0.5
+camera_retry_interval_sec = 15.0
+camera_missing_message = "Pi Camera non détectée, nouvelle tentative dans 15 secondes."
+camera_ready_message = "Pi Camera détectée. Vous pouvez prendre des photos."
+
+# Mapping touches non-globales du mode machine à lire.
+key_capture = "1"
+key_cancel = "3"
+key_backward = "4"
+key_play_pause = "5"
+key_forward = "6"
+key_replay = "*"
+
+# =============================================================================
+# MULTIMETER
+# =============================================================================
+[multimeter]
+# Intervalle lecture auto (s), > 0.
+auto_read_interval_sec = 5.0
+# Délai de stabilité avant annonce changement mode OWON (s), >= 0.
+mode_announce_delay_sec = 0.7
+
+# =============================================================================
+# CALIPER - Pied à coulisse sans fil NRF24
+# =============================================================================
+[caliper]
+
+# GPIO CE du module NRF24.
+ce_pin = 25
+
+# Chip Select SPI (0 = CE0 / GPIO8).
+csn_pin = 0
+
+# Canal radio NRF24 (0-125).
+channel = 120
+
+# Adresse radio (5 bytes).
+address = "00001"
+
+# Intervalle de lecture automatique (secondes).
+auto_read_interval = 4.0
+
+# =============================================================================
+# THERMOMETER - Thermomètre ESP32 en WiFi local
+# =============================================================================
+[thermometer]
+
+# URL cible de l'API HTTP exposée par l'ESP32.
+target_url = "http://thermo.local/api"
+
+# Intervalle de polling HTTP en secondes.
+poll_interval = 2.0
+
+# Timeout HTTP par requête en secondes.
+request_timeout = 3.0
+
+# =============================================================================
+# MODES
+# =============================================================================
+[modes]
+# Modes actifs et ordre de rotation.
+# Clés valides: datetime, dummy, multimeter, reading_machine, caliper, thermometer.
+enabled = ["datetime", "dummy", "multimeter", "reading_machine", "caliper", "thermometer"]

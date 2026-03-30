@@ -77,7 +77,6 @@ OWON_FUNCTION: Dict[str, int] = {
     "VOLT_AC": 7692,
     "DIODE_TEST": 7764,
     "MICRO_AMPERE_DC": 7698,
-    # Attention : ces deux-là sont volontairement "swappés"
     "MILLI_AMPERE_AC": 7707,
     "MICRO_AMPERE_AC": 7706,
     "MILLI_AMPERE_DC": 7699,
@@ -331,7 +330,14 @@ class OwonMultimeterDriver:
         *,
         on_status: Optional[Callable[[str], None]] = None,
         on_new_measure: Optional[Callable[[OwonMultimeterData], None]] = None,
+        name_filter: str = "BDM",
+        address_filter: Optional[str] = None,
+        characteristic_uuid: str = "0000fff4-0000-1000-8000-00805f9b34fb",
+        scan_timeout: float = 4.0,
         retry_delay: float = 15.0,
+        reconnect_delay: float = 2.0,
+        listen_poll_interval_sec: float = 0.5,
+        mode_announce_delay: float = 0.7,
     ) -> None:
         """
         Initialise le driver OWON.
@@ -363,17 +369,21 @@ class OwonMultimeterDriver:
         self._last_announced_unit_code: Optional[int] = None
         self._last_unit_change_time: float = 0.0
         # Délai avant d'annoncer un mode (pour éviter d'annoncer tous les modes traversés)
-        self._mode_announce_delay: float = 0.7  # en secondes, à ajuster au besoin
+        self._mode_announce_delay: float = mode_announce_delay
 
         # Transport BLE générique
         # - name_filter : "BDM" = nom publicitaire du multimètre OWON 16
         # - characteristic_uuid : UUID utilisée par OWON pour les mesures
         self._ble = BleClient(
-            name_filter="BDM",
-            characteristic_uuid="0000fff4-0000-1000-8000-00805f9b34fb",
+            name_filter=name_filter,
+            address_filter=address_filter,
+            characteristic_uuid=characteristic_uuid,
             on_status=self._handle_ble_status,
             on_packet=self._handle_ble_packet,
+            scan_timeout=scan_timeout,
             retry_delay=self._retry_delay,
+            reconnect_delay=reconnect_delay,
+            listen_poll_interval_sec=listen_poll_interval_sec,
         )
 
     # ----------- API publique -----------

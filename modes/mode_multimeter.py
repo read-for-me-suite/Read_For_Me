@@ -19,7 +19,7 @@ Le mode ne contient AUCUN code BLE direct et ne gère pas les broches GPIO :
 il consomme simplement un driver de plus bas niveau.
 """
 
-from typing import Optional
+from typing import Optional, Dict, Any
 from threading import Timer
 
 from core.mode_base import Mode
@@ -74,7 +74,13 @@ class ModeMultimetre(Mode):
       mais ne parle pas tant que le multimètre n'est pas reconnecté.
     """
 
-    def __init__(self, speaker: Speaker):
+    def __init__(
+        self,
+        speaker: Speaker,
+        *,
+        auto_read_interval: float = 5.0,
+        driver_config: Optional[Dict[str, Any]] = None,
+    ):
         """
         Initialise le mode Multimètre.
 
@@ -91,13 +97,14 @@ class ModeMultimetre(Mode):
 
         # Gestion de la lecture automatique
         self._auto_read_enabled: bool = False          # état ON/OFF du mode auto
-        self._auto_read_interval: float = 5.0          # période de lecture auto (secondes)
+        self._auto_read_interval: float = float(auto_read_interval)
         self._auto_read_timer: Optional[Timer] = None  # Timer courant (si actif)
 
         # Driver haut niveau du multimètre OWON (BLE + décodage trames)
         self._driver = OwonMultimeterDriver(
             on_status=self._on_status_from_driver,
             on_new_measure=self._on_new_measure,
+            **(driver_config or {}),
         )
 
     # ---------- callbacks venant du driver ----------

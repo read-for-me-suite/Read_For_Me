@@ -107,6 +107,7 @@ class RotarySelector:
         rotate_button_deadzone: float = 0.15, # zone morte autour des appuis bouton
         min_step_interval: float = 0.30,      # temps mini entre deux changements de mode
         double_click_window: float = 0.4,     # temps max entre deux clics pour un double-clic
+        button_bounce_time: float = 0.05,
     ) -> None:
         self.positions_count = positions_count
 
@@ -147,7 +148,7 @@ class RotarySelector:
         self.channel_b = Button(pin_b)
 
         # Bouton poussoir (pull-up + anti-rebond soft)
-        self.button = Button(pin_sw, pull_up=True, bounce_time=0.05)
+        self.button = Button(pin_sw, pull_up=True, bounce_time=button_bounce_time)
 
         # Wiring des événements GPIO vers les callbacks internes
         self.channel_a.when_pressed = self._on_channel_a_edge
