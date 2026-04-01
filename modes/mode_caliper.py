@@ -85,6 +85,7 @@ class ModeCaliper(Mode):
         - Démarre le thread de lecture radio.
         """
         self._auto_read_enabled = False
+        self._last_data = None
         self._driver.start()
 
     def on_exit(self) -> None:

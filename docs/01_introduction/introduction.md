@@ -1,131 +1,121 @@
 # Introduction
 
-Ce document décrit le fonctionnement interne, les choix techniques et l’architecture du **système d’assistance technique multimode** développé sur Raspberry Pi.
+Ce dépôt contient un assistant vocal embarqué modulaire destiné à être exécuté sur Raspberry Pi.
+Le projet ne repose pas sur une interface graphique : toute l'expérience utilisateur passe par des entrées matérielles simples et par un retour audio.
 
-L’objectif principal est de permettre à un utilisateur d’accéder facilement à plusieurs fonctions utiles (lecture de l’heure, consultation d’un multimètre Bluetooth, etc.) via une interface matérielle simple et une synthèse vocale.
+## Finalité du projet
 
----
+L'objectif principal est de fournir un socle logiciel extensible pour des usages d'assistance technique.
+La première famille d'usages consiste à rendre accessibles des informations ou des mesures sans écran :
 
-## Objectifs du projet
+- heure et date ;
+- mesures d'un multimètre ;
+- température d'un capteur réseau ;
+- lecture de texte à partir d'une photo ;
+- mesure d'un pied à coulisse.
 
-Le projet poursuit plusieurs objectifs concrets :
+Le système a donc été construit autour de trois exigences fortes :
 
-### 1. Faciliter l’accès à l’information
+- modularité : ajouter un mode ou un périphérique sans réécrire l'application ;
+- robustesse : éviter qu'une opération lente bloque toute l'interface ;
+- lisibilité : rendre le code compréhensible et documentable.
 
-Permettre à l’utilisateur d’obtenir rapidement des informations utiles (heure, mesures électriques, messages de test…) sans avoir à regarder un écran.
+## Interface utilisateur
 
-Aujourd’hui, la navigation se fait principalement via :
-- un **sélecteur rotatif** (changement de mode),
-- un **bouton poussoir** (appui court / long / double).
+L'interface physique actuelle repose sur deux familles d'entrées :
 
-> D’autres types de contrôles ou d’entrées pourront être ajoutés plus tard (clavier, caméra, etc.). L’architecture est pensée pour pouvoir les accueillir sans être complètement modifiée.
+- un sélecteur rotatif avec bouton poussoir ;
+- un clavier matriciel 4x4.
 
----
+Le sélecteur rotatif sert à changer de mode.
+Le bouton du sélecteur fournit trois gestes :
 
-### 2. Proposer une architecture modulaire
+- appui court ;
+- appui long ;
+- double appui.
 
-Le code est structuré pour que l’on puisse :
+Le clavier 4x4 est partagé par tout le système.
+Certaines touches sont globales et toujours actives :
 
-- ajouter facilement de **nouveaux modes** (par exemple : lecture de fichiers, calculatrice vocale, etc.),  
-- connecter d’autres **appareils matériels** (autres instruments BLE, futurs capteurs…),  
-- réutiliser les briques centrales (`core/`) dans d’autres projets proches.
+- augmentation du volume ;
+- diminution du volume ;
+- augmentation de la vitesse de lecture ;
+- diminution de la vitesse de lecture.
 
-Chaque brique a un rôle bien délimité :
-- gestion des modes,
-- gestion de la voix,
-- drivers matériels,
-- modes orientés utilisateur.
+Les autres touches sont déléguées au mode actif.
+C'est particulièrement important pour la machine à lire, qui utilise le clavier pour capturer, mettre en pause, relancer ou annuler une lecture.
 
----
+## Périmètre fonctionnel actuel
 
-### 3. Garantir un fonctionnement robuste
+À la date de cette version, les modes disponibles sont :
 
-Le système doit rester stable même en présence de :
+- `datetime` : annonce l'heure et la date système ;
+- `dummy` : valide la chaîne d'événements et la synthèse vocale ;
+- `multimeter` : pilote un multimètre OWON via BLE ;
+- `reading_machine` : capture une photo, lance l'OCR, synthétise puis lit le texte ;
+- `caliper` : lit un pied à coulisse numérique via NRF24 ;
+- `thermometer` : lit une température publiée par un ESP32 via HTTP local.
 
-- connexions Bluetooth capricieuses,
-- actions utilisateur rapides (rotations et clics rapprochés),
-- délais de réponse du matériel.
+## Architecture logique
 
-Pour cela, on utilise notamment :
-- un **thread dédié pour la synthèse vocale**,  
-- un **thread dédié pour le BLE**,  
-- des callbacks et timers non bloquants pour le sélecteur rotatif,  
-- une séparation claire entre logique métier et accès matériel.
+Le projet est structuré en couches volontairement simples :
 
----
+- `core/` : règles communes de l'application, synthèse vocale, orchestration des modes ;
+- `config/` : chargement, fusion et validation de la configuration TOML ;
+- `hardware/` : accès au matériel local, aux transports et aux périphériques ;
+- `modes/` : logique fonctionnelle orientée utilisateur ;
+- `main.py` : assemblage de toutes les briques.
 
-### 4. Faciliter la prise en main par un nouveau développeur
+Cette séparation permet de conserver une frontière nette entre :
 
-La documentation et l’architecture visent à permettre à quelqu’un qui rejoint le projet de :
+- ce qui relève de l'entrée/sortie physique ;
+- ce qui relève du transport de données ;
+- ce qui relève du métier utilisateur ;
+- ce qui relève de l'orchestration globale.
 
-- comprendre rapidement **qui fait quoi**,
-- repérer où ajouter un **nouveau mode**,
-- repérer où intégrer un **nouvel appareil**,
-- intervenir sans risque de tout casser.
+## Conception orientée extension
 
----
+Le dépôt a déjà été préparé pour évoluer.
+Les deux mécanismes principaux sont :
 
-## 📦 Périmètre fonctionnel actuel
+- un registre de modes (`core/mode_registry.py`) ;
+- une configuration centralisée (`config/config.toml`).
 
-À la date de cette version, le système embarque :
+Concrètement :
 
-### Modes disponibles
+- l'ordre des modes actifs ne dépend pas d'une liste codée en dur dans `main.py` ;
+- les timings matériels, GPIO, paramètres OCR, BLE et audio vivent dans la configuration ;
+- les modes restent découplés des détails de câblage tant qu'ils passent par les drivers adaptés.
 
-- **Mode Date & Heure**
-  - Appui court : annonce de l’heure.
-  - Appui long : annonce de la date du jour.
+## Contraintes techniques importantes
 
-- **Mode Test (ModeDummy)**
-  - Sert de mode de démonstration / vérification de la chaîne TTS et du sélecteur.
+Le système dialogue avec des composants lents ou instables par nature :
 
-- **Mode Multimètre OWON 16**
-  - Connexion BLE à un multimètre OWON.
-  - Décodage des trames 6 octets spécifiques OWON.
-  - Annonce des mesures sur demande.
-  - Mode de lecture automatique activable par double appui.
+- synthèse vocale ;
+- Bluetooth Low Energy ;
+- polling réseau ;
+- caméra Raspberry Pi ;
+- OCR Tesseract ;
+- radio NRF24.
 
----
+Pour éviter les blocages, le projet utilise plusieurs threads dédiés :
 
-### Briques techniques principales
+- thread de file d'attente pour les annonces TTS ;
+- thread interne du client BLE ;
+- thread de scan du clavier ;
+- thread de pipeline de la machine à lire ;
+- thread de surveillance caméra ;
+- thread de polling HTTP ;
+- thread d'écoute NRF24.
 
-- **Synthèse vocale (`core/speaker.py`)**
-  - Gestion de la TTS dans un thread dédié.
-  - File de messages pour éviter les blocages.
+La documentation détaillera ces flux plus loin, car ils conditionnent une grande partie de la robustesse du projet.
 
-- **Gestionnaire de modes (`core/mode_manager.py`)**
-  - Centralise les modes disponibles.
-  - Gère le changement de mode via le sélecteur.
-  - Propage les appuis bouton au mode courant.
+## Ce qu'il faut retenir avant de lire la suite
 
-- **Abstraction de mode (`core/mode_base.py`)**
-  - Définition des hooks : `on_enter`, `on_exit`, `on_short_press`, `on_long_press`, `on_double_press`.
+Si tu découvres le code, les idées centrales sont les suivantes :
 
-- **Sélecteur rotatif (`hardware/platform/rotary_selector.py`)**
-  - Lecture des signaux GPIO.
-  - Gestion des gestes de rotation (stabilisation).
-  - Gestion des appuis : court / long / double.
-
-- **Client BLE générique (`hardware/transports/ble_client.py`)**
-  - Scan, connexion, reconnexion automatique.
-  - Notifications sur une caractéristique BLE.
-
-- **Driver OWON (`hardware/devices/owon_multimetre.py`)**
-  - Décodage des trames du multimètre OWON 16.
-  - Détection des changements de fonction (Volt, Ohm, Ampère…).
-  - Interface simple pour récupérer la dernière mesure.
-
----
-
-## Lecture recommandée
-
-Pour comprendre le projet dans l’ordre :
-
-1. **Cette introduction** (fichier actuel)  
-2. **Architecture du système** : `02_architecture/architecture.md`  
-3. **Description détaillée des modules** : `03_modules/...`  
-4. **Guides de développement** pour ajouter des modes ou des appareils : `04_guide_dev/...`
-
-Le but est qu’après cette lecture, tu saches :
-- où se trouvent les responsabilités,
-- comment circulent les événements,
-- comment étendre proprement le système.
+- un seul mode est actif à un instant donné ;
+- `ModeManager` reçoit les événements et les route vers ce mode ;
+- tous les retours vocaux passent par `Speaker` ;
+- les drivers matériels exposent des API simples et des callbacks ;
+- `main.py` est le seul point d'assemblage global.

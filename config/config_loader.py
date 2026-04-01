@@ -129,6 +129,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 
 
 def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+    """Fusionne récursivement deux dictionnaires de configuration."""
     merged = copy.deepcopy(base)
     for key, value in override.items():
         if isinstance(value, dict) and isinstance(merged.get(key), dict):
@@ -139,11 +140,13 @@ def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any
 
 
 def _ensure_range(name: str, value: float, minimum: float, maximum: float) -> None:
+    """Vérifie qu'une valeur numérique reste dans un intervalle autorisé."""
     if not (minimum <= value <= maximum):
         raise ValueError(f"{name} doit être entre {minimum} et {maximum} (reçu: {value})")
 
 
 def _validate_config(config: Dict[str, Any]) -> None:
+    """Valide la cohérence fonctionnelle de la configuration fusionnée."""
     speaker = config["speaker"]
     keypad = config["keypad"]
     rotary = config["rotary"]
@@ -288,6 +291,9 @@ def _validate_config(config: Dict[str, Any]) -> None:
 
 
 def load_config() -> Dict[str, Any]:
+    """
+    Charge `config.toml`, fusionne les valeurs par défaut puis valide le résultat.
+    """
     if not CONFIG_FILE.exists():
         raise FileNotFoundError(
             f"Fichier de config introuvable : {CONFIG_FILE}\n"
@@ -303,8 +309,10 @@ def load_config() -> Dict[str, Any]:
 
 
 def get_app_config() -> Dict[str, Any]:
+    """Retourne la configuration complète validée de l'application."""
     return load_config()
 
 
 def get_speaker_config() -> Dict[str, Any]:
+    """Retourne uniquement la section `speaker` de la configuration validée."""
     return load_config()["speaker"]

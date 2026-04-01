@@ -17,7 +17,6 @@ Comportement UX :
 - Appui long : Annonce l'état ("Le thermomètre est connecté au réseau local").
 """
 
-import time
 from typing import Optional
 
 from core.mode_base import Mode
@@ -27,9 +26,16 @@ from hardware.devices.esp32_thermometer import ThermometerDriver, ThermometerDat
 class ModeThermometre(Mode):
     """
     Mode Thermomètre connecté via le réseau local.
+
+    Le mode s'appuie sur `ThermometerDriver` pour toute la partie
+    communication. Son rôle est volontairement limité à la logique UX :
+    formater la valeur pour la voix et répondre aux appuis utilisateur.
     """
 
     def __init__(self, speaker: Speaker):
+        """
+        Initialise le mode avec sa synthèse vocale et son driver.
+        """
         super().__init__(name="Thermomètre")
         self.speaker = speaker
         
@@ -56,8 +62,15 @@ class ModeThermometre(Mode):
         self._last_data = data
 
     def _format_value_for_speech(self, value: float) -> str:
-        """Formate 22.5 en '22 virgule 5'."""
-        if value is None: return ""
+        """
+        Convertit une température en chaîne plus lisible pour le TTS.
+
+        Exemple :
+        - `22.5` -> `22,5`
+        - `-3.2` -> `moins 3,2`
+        """
+        if value is None:
+            return ""
         txt = str(value).replace('.', ',')
         if value < 0:
             return f"moins {txt.replace('-', '')}"
@@ -88,10 +101,9 @@ class ModeThermometre(Mode):
         """
         Appui court : Annonce la température.
         """
-       
         measure = self._driver.get_last_measure()
         val = measure["value"]
-        unit = measure.get("unit_name", "degrés") # Valeur par défaut si manquant
+        unit = measure.get("unit_name", "degrés")
 
         if val is None:
             if self._driver.is_connected:

@@ -113,14 +113,18 @@ class WifiClient:
         )
         self._thread.start()
         print(f"WifiClient démarré. Cible: {self._target_url}")
-        print(f"WifiClient démarré. Cible: {self._target_url}")
 
     def stop(self) -> None:
         """
         Arrête la boucle de polling.
         """
         self._running = False
-        # Le thread se terminera à la prochaine itération de la boucle
+        if (
+            self._thread is not None
+            and self._thread.is_alive()
+            and threading.current_thread() is not self._thread
+        ):
+            self._thread.join(timeout=self._poll_interval + self._request_timeout + 1.0)
 
     # ---------------- Boucle principale ----------------
 
@@ -136,7 +140,6 @@ class WifiClient:
                 self._poll_target()
 
             except Exception as e:
-                print(f"WifiClient: Exception non gérée dans la boucle : {e}")
                 print(f"WifiClient: Exception non gérée dans la boucle : {e}")
                 self._handle_disconnection()
             
@@ -163,7 +166,6 @@ class WifiClient:
                 self._handle_connection_success(data)
             else:
                 # Le serveur répond, mais avec une erreur (ex: 500 Internal Error)
-                print(f"WifiClient: Erreur HTTP {response.status_code}")
                 print(f"WifiClient: Erreur HTTP {response.status_code}")
                 self._emit_status("http_error")
                 # On considère que la liaison est là, mais que le service bugue

@@ -23,13 +23,13 @@ Cela rend l'architecture :
 Contrat
 -------
 - Les clés (ex: "datetime") doivent correspondre aux valeurs déclarées
-  dans `[modes].enabled` du fichier `config/settings.toml`.
+  dans `[modes].enabled` du fichier `config/config.toml`.
 - Chaque valeur du registre est une **classe** dérivée de `Mode`
   (et non une instance).
 
 Exemple
 -------
-Dans `config/settings.toml` :
+Dans `config/config.toml` :
 
 [modes]
 enabled = ["datetime", "dummy", "multimeter"]

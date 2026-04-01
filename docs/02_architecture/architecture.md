@@ -1,176 +1,196 @@
 # Architecture du système
 
-Cette section présente la structure globale du projet, les rôles de chaque dossier, et la manière dont les différentes briques interagissent.
+Cette page donne une vue d'ensemble fidèle au dépôt actuel.
+Elle doit permettre de comprendre comment les événements circulent et où se situe chaque responsabilité.
 
-L’objectif est de donner une vue claire de l’architecture avant d’entrer dans le détail des fichiers.
+## 1. Assemblage global
 
----
+Le point d'entrée est `main.py`.
+Il réalise les opérations suivantes dans cet ordre :
 
-## 1. Vue d’ensemble
+1. charge et valide la configuration ;
+2. instancie le `Speaker` ;
+3. instancie le clavier matriciel ;
+4. construit dynamiquement la liste des modes activés ;
+5. crée le `ModeManager` ;
+6. crée le `RotarySelector` ;
+7. branche les callbacks du sélecteur vers le `ModeManager` ;
+8. laisse vivre l'application avec `signal.pause()`.
 
-Le système suit un schéma simple :
+Cette séquence d'initialisation est importante parce qu'elle garantit :
 
-- Des **événements côté utilisateur** (rotation, clics…) sont captés par la couche matérielle.
-- Ces événements sont traduits en appels vers un **gestionnaire de modes**.
-- Le mode actif peut ensuite :
-  - interroger des **drivers matériels** (ex : multimètre),
-  - produire une réponse via la **synthèse vocale**.
+- que la voix est disponible avant toute annonce ;
+- que le clavier global est actif pour tous les modes ;
+- que le premier mode est annoncé puis activé immédiatement.
 
-Aujourd’hui, les événements utilisateur proviennent principalement du **sélecteur rotatif** et de son bouton, mais l’architecture permet d’ajouter d’autres sources d’événements si besoin (pavé numérique, autres entrées matérielles, etc.).
-
----
-
-## 2. Organisation des dossiers
+## 2. Découpage du dépôt
 
 ```text
-project_root/
-│
+Read_For_Me/
+├── config/
+│   ├── config.toml
+│   └── config_loader.py
 ├── core/
-│   ├── speaker.py
 │   ├── mode_base.py
-│   └── mode_manager.py
-│
+│   ├── mode_manager.py
+│   ├── mode_registry.py
+│   └── speaker.py
 ├── hardware/
+│   ├── devices/
 │   ├── platform/
-│   │   └── rotary_selector.py
-│   ├── transports/
-│   │   └── ble_client.py
-│   └── devices/
-│       └── owon_multimetre.py
-│
+│   └── transports/
 ├── modes/
-│   ├── mode_datetime.py
-│   ├── mode_dummy.py
-│   └── mode_multimetre.py
-│
+├── sounds/
+├── tests/
 └── main.py
 ```
-Chaque dossier a un rôle bien précis :
 
-- **core/** : logique centrale (modes, TTS, gestionnaire des modes).
-- **hardware/** : accès au matériel (GPIO, BLE, drivers d’appareils).
-- **modes/** : comportements fonctionnels vus par l’utilisateur.
-- **main.py** : point d’entrée qui instancie et connecte toutes les briques.
+Le découpage suit une logique en quatre étages :
 
-Ces dossiers représentent les couches principales du système, chacune ayant une responsabilité claire et indépendante.
+- `platform` : matériel directement connecté à la Pi ;
+- `transports` : couche d'accès à un média de communication ;
+- `devices` : décodage ou pilotage d'un périphérique concret ;
+- `modes` : comportement utilisateur final.
 
----
+## 3. Flux d'événements principaux
 
-## 3. Flux global de fonctionnement
+### 3.1 Changement de mode
 
+Le flux nominal est :
 
-Le système suit un enchaînement d'événements simple et extensible :
+1. le `RotarySelector` détecte une rotation stable ;
+2. il appelle `on_position_changed(index, direction)` ;
+3. `ModeManager.set_index()` coupe l'audio en cours ;
+4. `ModeManager` appelle `on_exit()` sur l'ancien mode ;
+5. `ModeManager` annonce le nouveau mode ;
+6. `ModeManager` appelle `on_enter()` sur le nouveau mode.
 
-1. **Entrées matérielles**
-   - Impulsions rotatives, appuis bouton, signaux GPIO.
-   - Données provenant d’un transport (BLE, futur Wi-Fi, futur USB…).
+Le fait de couper l'audio avant la bascule est central : un ancien mode ne continue pas à parler alors que l'utilisateur vient d'en sélectionner un autre.
 
-2. **Traitement**
-   - Le matériel génère des événements.
-   - Ces événements alimentent le `ModeManager` qui active ou notifie le mode courant.
-   - Le mode courant fait appel à des drivers matériels si nécessaire.
+### 3.2 Événements bouton du sélecteur
 
-3. **Sorties**
-   - Toutes les annonces passent par le `Speaker`.
-   - Le système reste non bloquant grâce à des threads et timers dédiés.
+Le bouton intégré au sélecteur produit trois callbacks haut niveau :
 
----
+- `handle_short_press()` ;
+- `handle_long_press()` ;
+- `handle_double_press()`.
 
-## 4. Rôle des couches principales
+Le `ModeManager` ne les interprète pas lui-même.
+Il les délègue au mode actif via l'interface commune définie dans `Mode`.
 
-### 4.1 core/
-Cette couche définit la structure logique globale du projet.  
-Elle contient :
-- la classe abstraite `Mode`,
-- la gestion des transitions entre modes (`ModeManager`),
-- la synthèse vocale (`Speaker`).
+### 3.3 Événements clavier
 
-Elle ne dépend pas du matériel : elle pourrait être réutilisée dans un autre projet embarqué.
+Le `Keypad4x4` tourne en continu dans un thread dédié.
+À chaque touche détectée :
 
----
+1. le driver appelle `ModeManager.handle_key_pressed(key)` ;
+2. si la touche est globale, `ModeManager` agit directement sur `Speaker` ;
+3. sinon, la touche est transmise au mode actif.
 
-### 4.2 hardware/
-Cette couche encapsule toute interaction avec le matériel réel.
+Ce design évite d'avoir à démarrer ou arrêter le clavier à chaque changement de mode.
 
-Elle est organisée en trois sous-niveaux :
+### 3.4 Données issues des périphériques
 
-- **platform/** : ce qui concerne le matériel fixe du Raspberry Pi  
-  (par exemple : le sélecteur rotatif, futurs pavés numériques, boutons supplémentaires).
+Chaque périphérique suit sensiblement le même schéma :
 
-- **transports/** : protocoles de communication génériques  
-  (BLE aujourd’hui, Wi-Fi, série, USB ou NRF demain).
+- le transport reçoit des paquets bruts ou des réponses réseau ;
+- le driver de périphérique les traduit en données métier ;
+- le mode mémorise ou reformate ces données ;
+- le `Speaker` effectue l'annonce au bon moment.
 
-- **devices/** : drivers fonctionnels qui interprètent les données  
-  (ex. multimètre OWON, et futurs appareils).
+Exemples :
 
-Chaque transport est réutilisable par plusieurs devices, et chaque device est indépendant de l’interface utilisateur.
+- BLE -> `BleClient` -> `OwonMultimeterDriver` -> `ModeMultimetre` ;
+- HTTP -> `WifiClient` -> `ThermometerDriver` -> `ModeThermometre` ;
+- NRF24 -> `Nrf24Transport` -> `CaliperDriver` -> `ModeCaliper`.
 
----
+## 4. Cas particulier : la machine à lire
 
-### 4.3 modes/
-Les modes sont les fonctionnalités finales accessibles à l'utilisateur.  
-Chacun correspond à un scénario d’usage complet (dire l’heure, lire un multimètre…).
+La machine à lire est le flux le plus riche du dépôt.
+Elle assemble plusieurs briques successives :
 
-Un mode :
-- hérite de la classe `Mode`,
-- définit comment réagir aux appuis bouton,
-- peut utiliser un ou plusieurs drivers matériels.
+1. `ModeReadingMachine` reçoit une touche clavier ;
+2. il lance un thread de pipeline ;
+3. `TextReaderDevice` capture une image ;
+4. `TextReaderDevice` exécute l'OCR ;
+5. `TextReaderDevice` nettoie le texte ;
+6. `Speaker.synthesize_to_file()` génère un WAV ;
+7. `Speaker.play()` lance la lecture longue via `mplayer` en mode slave.
 
-Les modes sont **isolés les uns des autres** : en ajouter un ne demande pas de modifier les autres.
+Ce mode gère aussi :
 
----
+- l'annulation ;
+- pause / reprise ;
+- avance / retour ;
+- replay ;
+- surveillance de disponibilité de la caméra.
 
-### 4.4 main.py
-C’est le point d’entrée de l’application.
+## 5. Gestion de la configuration
 
-Il :
-- instancie le `Speaker`,
-- crée tous les modes,
-- les passe au `ModeManager`,
-- configure le sélecteur rotatif,
-- lance l’écoute des événements.
+La configuration centrale est stockée dans `config/config.toml`.
+Le module `config/config_loader.py` :
 
-C’est le seul fichier qui connecte toutes les couches entre elles.
+- fournit les valeurs par défaut ;
+- fusionne les surcharges du fichier TOML ;
+- valide les bornes, formats et listes ;
+- expose des helpers pour le reste de l'application.
 
----
+La configuration pilote notamment :
 
-## 5. Extensibilité prévue
+- le choix de la voix Piper ;
+- le volume et la vitesse par défaut ;
+- les GPIO du rotatif et du clavier ;
+- les paramètres BLE ;
+- les paramètres OCR ;
+- les délais propres à chaque mode.
 
-L’architecture est conçue pour supporter facilement de nouveaux composants.
+## 6. Modèle d'extensibilité
 
-### 5.1 Ajouter un mode
-Créer un nouveau fichier dans `modes/` puis l’ajouter dans la liste des modes du main.
+L'extensibilité repose sur deux points simples.
 
-Aucune autre modification nécessaire.
+### 6.1 Registre des modes
 
-### 5.2 Ajouter un device BLE (ou autre)
-Créer un fichier dans `hardware/devices/` et réutiliser un transport existant  
-(ex. BLEClient) ou en ajouter un nouveau dans `hardware/transports/`.
+`core/mode_registry.py` associe une clé logique à une classe Python.
+`main.py` n'a pas besoin de connaître à l'avance l'ordre final des modes : il lit `modes.enabled` dans la config puis instancie chaque classe correspondante.
 
-### 5.3 Ajouter de nouvelles entrées utilisateur
-Exemples possibles :
-- pavé numérique pour la machine à lire,
-- boutons additionnels,
-- capteurs tactiles,
-- gestes via caméra.
+### 6.2 Empilement platform -> transport -> device -> mode
 
-Il suffit d’ajouter un driver dans `hardware/platform/`  
-et d’envoyer des événements vers le `ModeManager`.
+Lorsqu'un nouveau matériel arrive, la logique idéale est :
 
-### 5.4 Ajouter de nouveaux transports
-Des protocoles comme Wi-Fi, USB, UART ou NRF peuvent être ajoutés directement dans  
-`hardware/transports/` sans impact sur les modes existants.
+1. créer ou réutiliser un transport ;
+2. créer un driver de périphérique ;
+3. créer un mode qui consomme ce driver ;
+4. l'enregistrer dans le registre.
 
----
+Cela évite de mélanger :
 
-## 6. Conclusion
+- les détails protocolaires ;
+- le décodage des données ;
+- l'expérience utilisateur ;
+- l'orchestration globale.
 
-Cette architecture permet :
+## 7. Threads et opérations non bloquantes
 
-- une séparation nette des responsabilités,
-- une compréhension facile par tout nouveau développeur,
-- une addition simple de nouvelles fonctionnalités,
-- une robustesse élevée grâce aux threads dédiés et au non-blocage,
-- une indépendance entre matériel, logique métier et expérience utilisateur.
+Le dépôt utilise volontairement plusieurs boucles ou threads indépendants :
 
-Elle constitue une base solide et évolutive pour toutes les futures extensions du projet.
+- thread `SpeakerQueue` pour les annonces ;
+- processus `mplayer` séparés pour l'audio ;
+- thread `BleClientThread` pour la pile BLE ;
+- thread `Keypad4x4` pour le scan clavier ;
+- thread `ReadingMachinePipeline` pour la machine à lire ;
+- thread `ReadingMachineCameraMonitor` pour la disponibilité caméra ;
+- thread `WifiClientThread` pour le polling HTTP ;
+- thread `Nrf24Worker` pour la radio.
+
+Le thread principal, lui, reste minimal : il initialise, branche et attend.
+
+## 8. Principes d'architecture à retenir
+
+Le projet cherche avant tout à rester :
+
+- simple à étendre ;
+- robuste face au matériel ;
+- clair à documenter ;
+- testable partiellement même sans tout le matériel branché.
+
+Si un nouveau développement ne respecte plus la séparation `mode` / `device` / `transport`, c'est généralement un bon signal qu'il faut refactorer avant d'aller plus loin.

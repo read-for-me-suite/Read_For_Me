@@ -1,3 +1,22 @@
+"""
+Mode "Machine à lire".
+
+Ce module orchestre le flux utilisateur le plus complet du projet :
+
+1. Détection de la disponibilité de la caméra.
+2. Capture d'une image via `PiCamera`.
+3. OCR et nettoyage du texte via `TextReaderDevice`.
+4. Synthèse du texte en WAV via `Speaker.synthesize_to_file`.
+5. Lecture longue contrôlable via `Speaker.play`.
+
+Le mode ne lit pas directement le keypad GPIO. Il reçoit les touches
+non-globales depuis `ModeManager`, ce qui permet de conserver :
+
+- les touches globales volume/vitesse dans tous les modes ;
+- une logique de contrôle métier isolée ici ;
+- une implémentation testable avec des faux objets.
+"""
+
 from __future__ import annotations
 
 import os
@@ -19,6 +38,23 @@ class ModeReadingMachine(Mode):
 
     Ce mode ne pilote pas directement le keypad matériel : il reçoit les
     touches non-globales via ModeManager.on_key_pressed().
+
+    Commandes par défaut
+    --------------------
+    - `1` : capturer et lancer le pipeline complet.
+    - `3` : annuler la lecture ou le pipeline.
+    - `4` : reculer dans l'audio.
+    - `5` : pause / reprise.
+    - `6` : avancer dans l'audio.
+    - `*` : relire le dernier WAV généré.
+
+    Contraintes importantes
+    -----------------------
+    - Le pipeline est lancé dans un thread dédié pour ne pas bloquer
+      l'interface globale.
+    - Les messages d'erreur et de statut sont joués sous forme de sons
+      courts afin d'éviter une concurrence trop forte avec la lecture
+      longue du document.
     """
 
     KEY_CAPTURE = "1"
@@ -170,12 +206,26 @@ class ModeReadingMachine(Mode):
 
     @staticmethod
     def _resolve_path(project_root: pathlib.Path, configured_path: str) -> pathlib.Path:
+        """
+        Résout un chemin configuré en absolu.
+
+        Si `configured_path` est déjà absolu, il est conservé tel quel.
+        Sinon il est résolu par rapport à la racine du projet.
+        """
         p = pathlib.Path(configured_path)
         if p.is_absolute():
             return p
         return project_root / p
 
     def on_enter(self) -> None:
+        """
+        Prépare le mode à l'utilisation.
+
+        Actions réalisées :
+        - réinitialise l'état d'annulation ;
+        - sonde la disponibilité de la caméra ;
+        - lance le thread de surveillance si la caméra est absente.
+        """
         self._cancel_event.clear()
         available = self._is_camera_available()
         self._set_camera_available(available)
@@ -183,6 +233,12 @@ class ModeReadingMachine(Mode):
             self._start_camera_monitor()
 
     def on_exit(self) -> None:
+        """
+        Nettoie tout ce qui a été démarré par le mode.
+
+        Cette méthode doit laisser le mode dans un état neutre pour un
+        éventuel retour ultérieur, sans fuite de lecture ou de thread.
+        """
         self._cancel_event.set()
         self._stop_playback()
         self._stop_camera_monitor()
@@ -190,12 +246,29 @@ class ModeReadingMachine(Mode):
         self._paused = False
 
     def on_short_press(self) -> None:
+        """
+        Aucun comportement sur le bouton rotatif dans ce mode.
+
+        La machine à lire utilise le keypad pour éviter de surcharger le
+        bouton unique du sélecteur avec trop de commandes.
+        """
         pass
 
     def on_long_press(self) -> None:
+        """
+        Aucun comportement sur l'appui long du bouton rotatif.
+
+        Les commandes sont volontairement regroupées sur le clavier 4x4.
+        """
         pass
 
     def on_keypad_key(self, key: str) -> None:
+        """
+        Route une touche du keypad vers la commande métier correspondante.
+
+        Seules les touches non-globales arrivent ici : volume et vitesse
+        sont interceptés plus haut par `ModeManager`.
+        """
         dispatch = {
             self._key_capture: self._start_capture_pipeline,
             self._key_play_pause: self._toggle_pause,
@@ -209,6 +282,14 @@ class ModeReadingMachine(Mode):
             action()
 
     def _start_capture_pipeline(self) -> None:
+        """
+        Lance le pipeline de lecture si le mode est prêt.
+
+        Garde-fous appliqués :
+        - refuse un second lancement si un pipeline tourne déjà ;
+        - refuse le lancement si la caméra est absente ;
+        - coupe l'audio précédent avant une nouvelle capture.
+        """
         with self._job_lock:
             if self._busy:
                 self._play_prompt("error")
@@ -235,6 +316,13 @@ class ModeReadingMachine(Mode):
         t.start()
 
     def _run_pipeline(self) -> None:
+        """
+        Exécute le pipeline complet capture -> OCR -> WAV -> lecture.
+
+        Cette méthode est toujours appelée dans un thread séparé.
+        Toute exception est interceptée pour éviter de laisser le mode
+        bloqué dans un état incohérent.
+        """
         try:
             if self._cancel_event.is_set():
                 return
@@ -283,6 +371,12 @@ class ModeReadingMachine(Mode):
                 self._busy = False
 
     def _run_capture_ocr_with_retry(self) -> Optional[str]:
+        """
+        Tente plusieurs fois la séquence capture + OCR.
+
+        Retourne le chemin du texte propre si une tentative aboutit,
+        sinon relaie la dernière exception rencontrée.
+        """
         attempts = max(1, self._camera_capture_retry_attempts)
         last_exc: Optional[Exception] = None
 
@@ -321,6 +415,7 @@ class ModeReadingMachine(Mode):
         return any(p in msg for p in patterns)
 
     def _announce_camera_busy_debug(self) -> None:
+        """Trace les processus susceptibles de verrouiller la caméra."""
         processes = PiCamera.detect_blocking_processes()
         if processes:
             print("[READING_MACHINE] Processus potentiellement bloquants caméra:")
@@ -332,14 +427,31 @@ class ModeReadingMachine(Mode):
             self._camera_available = available
 
     def _is_camera_available_cached(self) -> bool:
+        """Retourne le dernier état caméra mémorisé par le mode."""
         with self._camera_state_lock:
             return self._camera_available
 
     def _is_camera_available(self) -> bool:
-        available, _diag = PiCamera.probe()
-        return bool(available)
+        """
+        Vérifie la disponibilité de la caméra.
+
+        La priorité va à `PiCamera.probe()` qui fournit un diagnostic plus
+        riche. Un fallback vers `is_available()` est conservé pour les tests
+        simulés et pour les implémentations plus simples.
+        """
+        probe = getattr(PiCamera, "probe", None)
+        if callable(probe):
+            available, _diag = probe()
+            return bool(available)
+
+        fallback = getattr(PiCamera, "is_available", None)
+        if callable(fallback):
+            return bool(fallback())
+
+        return self._is_camera_available_cached()
 
     def _start_camera_monitor(self) -> None:
+        """Démarre la surveillance périodique de la disponibilité caméra."""
         if self._camera_monitor_thread is not None and self._camera_monitor_thread.is_alive():
             return
 
@@ -352,12 +464,20 @@ class ModeReadingMachine(Mode):
         self._camera_monitor_thread.start()
 
     def _stop_camera_monitor(self) -> None:
+        """Arrête le thread de surveillance caméra s'il existe."""
         self._camera_monitor_stop.set()
         if self._camera_monitor_thread is not None and self._camera_monitor_thread.is_alive():
             self._camera_monitor_thread.join(timeout=self._camera_retry_interval_sec + 1.0)
         self._camera_monitor_thread = None
 
     def _camera_monitor_loop(self) -> None:
+        """
+        Boucle de surveillance de la caméra.
+
+        Tant que la caméra est absente, le mode peut rejouer un feedback
+        d'absence à intervalle régulier. Dès qu'elle redevient disponible,
+        un feedback positif peut être joué puis la boucle s'arrête.
+        """
         missing_announced = False
         while not self._camera_monitor_stop.is_set():
             available = self._is_camera_available()
@@ -377,6 +497,7 @@ class ModeReadingMachine(Mode):
                 return
 
     def _join_pipeline_thread(self) -> None:
+        """Attend la fin du thread pipeline avec un timeout de sécurité."""
         if self._pipeline_thread is None:
             return
         if self._pipeline_thread.is_alive():
@@ -386,22 +507,26 @@ class ModeReadingMachine(Mode):
         self._pipeline_thread = None
 
     def _cancel(self) -> None:
+        """Annule le pipeline ou la lecture en cours puis joue un feedback."""
         self._cancel_event.set()
         self._stop_playback()
         self._play_prompt("cancel")
 
     def _replay(self) -> None:
+        """Relance la lecture du dernier WAV généré si disponible."""
         if not os.path.exists(self._wav_path):
             self._play_prompt("error")
             return
         self._start_playback(self._wav_path)
 
     def _start_playback(self, wav_path: str) -> None:
+        """Démarre une nouvelle lecture longue après avoir arrêté l'ancienne."""
         self._stop_playback()
         self._paused = False
         self._handle = self.speaker.play(wav_path)
 
     def _stop_playback(self) -> None:
+        """Arrête la lecture longue active et réinitialise l'état local."""
         if self._handle is not None:
             try:
                 self._handle.stop()
@@ -411,6 +536,7 @@ class ModeReadingMachine(Mode):
         self._paused = False
 
     def _toggle_pause(self) -> None:
+        """Bascule entre pause et reprise de la lecture longue."""
         if self._handle is None:
             return
 
@@ -422,10 +548,12 @@ class ModeReadingMachine(Mode):
             self._paused = False
 
     def _seek(self, seconds: int) -> None:
+        """Déplace la tête de lecture du nombre de secondes demandé."""
         if self._handle is not None:
             self._handle.seek(seconds)
 
     def _play_prompt(self, name: str) -> None:
+        """Joue un son de feedback court identifié par son nom logique."""
         path = self._audio_prompts.get(name)
         if path is None:
             return
